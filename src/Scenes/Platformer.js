@@ -6,9 +6,17 @@ class Platformer extends Phaser.Scene {
     init() {
         // variables and settings
         this.ACCELERATION = 500;
-        this.DRAG = 700;    // DRAG < ACCELERATION = icy slide
-        this.physics.world.gravity.y = 1500;
-        this.JUMP_VELOCITY = -900;
+        this.DRAG = 800;    // DRAG < ACCELERATION = icy slide
+        this.physics.world.gravity.y = 1300;
+        this.JUMP_VELOCITY = -1000;
+
+        this.playerspawnX = 0;
+        this.playerspawnY = 0;
+
+        this.score = 0;
+
+        this.jumpCount = 0;
+        this.maxJumps = 2;
     }
 
     create() {
@@ -30,9 +38,39 @@ class Platformer extends Phaser.Scene {
             collides: true
         });
 
+        //Water Layer
+        this.waterLayer = this.map.createLayer("Water", this.tileset, 0, 0);
+        this.waterLayer.setScale(2.0);
+
+        this.objectLayer = this.map.getObjectLayer("Objects");
+
+        this.objectLayer.objects.forEach(obj => {
+            if (obj.name === "PlayerSpawn") {
+                this.playerspawnX = obj.x * 2.0;
+                this.playerspawnY = obj.y * 2.0;
+            }
+        });
+
+        this.coins = this.physics.add.group();
+        this.objectLayer.objects.forEach(obj =>{
+            if (obj.name === "Coin") {
+                let scale = 2.0;
+                let coin = this.physics.add.sprite(obj.x * scale , (obj.y * scale), "coin1");
+                coin.setScale(scale);
+                coin.setImmovable(true);               
+                coin.body.setAllowGravity(false);      
+                coin.body.moves = false;
+                this.coins.add(coin);
+            }
+        });
+
+
         // set up player avatar
-        my.sprite.player = this.physics.add.sprite(game.config.width/4, game.config.height/2, "platformer_characters", "tile_0000.png").setScale(SCALE)
+        my.sprite.player = this.physics.add.sprite(this.playerspawnX, this.playerspawnY, "platformer_characters", "tile_0000.png").setScale(SCALE)
         my.sprite.player.setCollideWorldBounds(true);
+
+        this.physics.add.overlap(my.sprite.player, this.coins, this.collectCoin, null, this);
+
 
         // Enable collision handling
         this.physics.add.collider(my.sprite.player, this.groundLayer);
@@ -46,24 +84,39 @@ class Platformer extends Phaser.Scene {
             this.physics.world.debugGraphic.clear()
         }, this);
 
+
+        this.cameras.main.startFollow(my.sprite.player, true, 0.1, 0.1);
+        this.cameras.main.setZoom(1.5);
+        this.cameras.main.setBounds(0, 0, this.map.widthInPixels * 2, this.map.heightInPixels * 2);
+
+        this.scoreText = this.add.text(250, 160, 'Score: 0', {
+            fontSize: '16px', 
+            fill: '#ffffff',
+            fontFamily: 'Arial',
+            backgroundColor: '#000000'
+        });
+        this.scoreText.setScrollFactor(0); 
+        this.scoreText.setDepth(99); 
+
     }
 
     update() {
         if(cursors.left.isDown) {
             // TODO: have the player accelerate to the left
-            
+            my.sprite.player.body.setAccelerationX(-this.ACCELERATION);
             my.sprite.player.resetFlip();
             my.sprite.player.anims.play('walk', true);
 
         } else if(cursors.right.isDown) {
             // TODO: have the player accelerate to the right
-
+            my.sprite.player.body.setAccelerationX(this.ACCELERATION);
             my.sprite.player.setFlip(true, false);
             my.sprite.player.anims.play('walk', true);
 
         } else {
             // TODO: set acceleration to 0 and have DRAG take over
-
+            my.sprite.player.body.setAcceleration(0);
+            my.sprite.player.body.setDrag(this.DRAG);
             my.sprite.player.anims.play('idle');
         }
 
@@ -74,7 +127,62 @@ class Platformer extends Phaser.Scene {
         }
         if(my.sprite.player.body.blocked.down && Phaser.Input.Keyboard.JustDown(cursors.up)) {
             // TODO: set a Y velocity to have the player "jump" upwards (negative Y direction)
-
+            my.sprite.player.body.setVelocityY(this.JUMP_VELOCITY);
         }
+
+        let tile = this.waterLayer.getTileAtWorldXY(
+            my.sprite.player.x,
+            my.sprite.player.y,
+            true
+        );
+        
+        if (tile && tile.properties.drown) {
+            this.drown();
+        }
+
+        let maxSpeed = 300;  
+
+        if (my.sprite.player.body.velocity.x > maxSpeed) {
+            my.sprite.player.body.velocity.x = maxSpeed;
+        }
+        if (my.sprite.player.body.velocity.x < -maxSpeed) {
+            my.sprite.player.body.velocity.x = -maxSpeed;
+        }
+
+        if (my.sprite.player.body.blocked.down) {
+            this.jumpCount = 0;
+            this.jumpReleased = true;  
+        }
+
+        if (!cursors.up.isDown) {
+            this.jumpReleased = true;
+        }
+
+        if (Phaser.Input.Keyboard.JustDown(cursors.up) && this.jumpCount === 0) {
+            my.sprite.player.body.setVelocityY(this.JUMP_VELOCITY);
+            this.jumpCount++;
+            this.jumpReleased = false;
+        } else if (cursors.up.isDown && this.jumpCount === 1 && this.jumpReleased) {
+            my.sprite.player.body.setVelocityY(this.JUMP_VELOCITY);
+            this.jumpCount++;
+            this.jumpReleased = false;
+        }
+
     }
+
+    drown() {
+        this.physics.world.pause();
+        my.sprite.player.anims.stop();
+        this.cameras.main.fade(1000, 0, 0, 255);
+        this.time.delayedCall(1200, () => {
+            this.scene.restart();  
+        });
+    }
+
+    collectCoin(player, coin) {
+        coin.disableBody(true,true);
+        this.score = (this.score || 0) + 1;
+        this.scoreText.setText('Score: ' + this.score);
+    }
+    
 }
